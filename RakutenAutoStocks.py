@@ -167,7 +167,5 @@ if __name__ == "__main__":
     except:
         credentials = get_credentials()
         skype_send(credentials["oota"]["skypeLiveId"], "楽天欠品作業中にエラーが起きました。")
-        skype_send("live:.cid.6828f41a3e80309a", "楽天欠品作業中にエラーが起きました。")
         with open(os.path.join(backupfolder, "error.log"), 'w', encoding='utf-8') as f:
             traceback.print_exc(file=f)
-"""            
