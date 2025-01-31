@@ -10,14 +10,14 @@ from openpyxl import load_workbook
 import shutil
 import traceback
 from skpy import Skype
-import pandas as pd
 import xml.etree.ElementTree as ET
 
 
 #PATH
 MASTER = "//acad2/Ace/020_制限共用部/520_システム/WinActor/物販本社/楽天欠品作業/マスタ.xlsx"
 BACKUP = os.path.abspath("backup")
-
+HOST = "https://ace-1648.suruzo.biz"
+#HOST = "https://sv101.suruzo.biz/ace-1648-test" ################### TEST ##################
 def open_vault():
     f = open("config/vault.json")
     data = json.load(f)
@@ -80,7 +80,7 @@ def get_items_from_rakuten():
     nextCursorMark = "*"
     while(cursorMark != nextCursorMark):
         cursorMark = nextCursorMark
-        r = requests.get("https://api.rms.rakuten.co.jp/es/2.0/items/search?hits=100&cursorMark=" + cursorMark, headers=auth_headers) #+ "&manageNumber=larmesiliconclear-30"
+        r = requests.get("https://api.rms.rakuten.co.jp/es/2.0/items/search?hits=100&cursorMark=" + cursorMark, headers=auth_headers) 
         if r.status_code == 200:
             for item in r.json()["results"]:
                 result[item["item"]["manageNumber"]] = item["item"]
@@ -96,52 +96,35 @@ def get_items_from_rakuten():
 def get_stocks_from_suruzo(items):
     result = list()
     credentials = open_vault()["suruzo"]
-    # to test
-    credentials = credentials["test"]
+    #credentials = credentials["test"] ###################TEST##################
 
     for manageNumber, details in items.items():
-        r = requests.get("https://sv101.suruzo.biz/ace-1648-test/api/fukubukuro/get_stocks_control.php?login_id=" + credentials["id"] + "&password=" + credentials["password"] + "&company_product_codes=" + manageNumber)
+        r = requests.get(HOST + "/api/goods/get_control.php?login_id=" + credentials["id"] + "&password=" + credentials["password"] + "&company_product_code=" + manageNumber)
         if r.status_code == 200:
             root = ET.fromstring(r.text.replace('&', ''))
             if root.find("STATUS").find("ERROR").text == "0":
-                for item in root.find("ITEMS"):
-                    if type(item.find("COLOR").text) == str:
-                        color = re.search("(?<=\().+(?=\))", item.find("COLOR").text)
-                        if color:
-                            color_code = color.group(0)
-                            for stocks in item.find("STOCKS"):
-                                power = stocks.find("SIZE").text
-                                if power == "0.00":
-                                    power = "±0.00(度なし)"
-                                site_stocks = float(stocks.find("TOKYO_STOCK").text) + float(stocks.find("FUKUOKA_STOCK").text)
-
-                                if color_code in details and power in details[color_code]:
-                                    if 0 <= site_stocks <= details[color_code]["minimum"]:
-                                        set_stocks = int(site_stocks)
-                                    elif site_stocks < 0:
-                                        set_stocks = 0
-                                    else:
-                                        set_stocks = 9999
-                                    result.append({
-                                        "manageNumber": manageNumber,
-                                        "variantId": details[color_code][power],
-                                        "mode": "ABSOLUTE",
-                                        "quantity": set_stocks
-                                        })
-    return result
-
-def datas_for_items_request(pd_obj,verified_with_master):
-    result = list()
-    for index, row in pd_obj.iterrows():
-        #空の場合の対応
-        if pd.isna(row["自社品番"]) or pd.isna(row["カラー"]):
-            continue
-
-        managenumber = re.sub("'", "", row["自社品番"])
-        if "(" in row["カラー"]:
-            color = re.findall(r"(?<=\().+(?=\))", re.sub("'", "", row["カラー"]))[0]
-            if not(managenumber in result) and color in verified_with_master:
-                result.append(managenumber)
+                items = root.find("PRODUCT").find("SKU")
+                for item in items:
+                    color_code = item.find("color_id").text
+                    power = item.find("size_code").text
+                    if power == "0.00":
+                        power = "±0.00(度なし)"
+                    site_stocks = float(item.find("tokyo_stock").text) + float(item.find("fukuoka_stock").text)
+                    status = item.find("maker_stocks").text
+                    if color_code in details and power in details[color_code]:
+                        if status:
+                            if site_stocks < details[color_code]["minimum"]:
+                                set_stocks = 0
+                            else:
+                                set_stocks = int(site_stocks)
+                        else:
+                            set_stocks = 9999
+                        result.append({
+                            "manageNumber": manageNumber,
+                            "variantId": details[color_code][power],
+                            "mode": "ABSOLUTE",
+                            "quantity": set_stocks
+                            })
     return result
 
 def filtering_with_master(items):
@@ -166,25 +149,19 @@ def filtering_with_master(items):
 
 def main(backupfolder):
 
+    print("start")
     rakuten_items = get_items_from_rakuten()
+    print("item from rakuten")
     filtered_rakuten_items = filtering_with_master(rakuten_items)
+    print("item filtered with master")
     stocks_data = get_stocks_from_suruzo(filtered_rakuten_items)
-    with open("test.txt", mode='w') as f:
-        for row in stocks_data:
-            f.write(str(row))
-    #print(stocks_data)
+    update_stock(stocks_data)
+    backup_data(backupfolder, stock_info)
 
-"""     
-        update_rakuten_stock(stock_info, master_reference)
-        backup_data(stock_info)
-
-"""
 if __name__ == "__main__":    
     backupfolder = os.path.join(BACKUP, datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
-    #os.makedirs(backupfolder)
+    os.makedirs(backupfolder)
 
-    main(backupfolder)
-"""
     try:
         main(backupfolder)
     except:
