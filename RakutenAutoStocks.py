@@ -156,7 +156,7 @@ def main(backupfolder):
     print("item filtered with master")
     stocks_data = get_stocks_from_suruzo(filtered_rakuten_items)
     update_stock(stocks_data)
-    backup_data(backupfolder, stock_info)
+    backup_data(backupfolder, stocks_data)
 
 if __name__ == "__main__":    
     backupfolder = os.path.join(BACKUP, datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     try:
         main(backupfolder)
     except:
-        credentials = get_credentials()
+        credentials = open_vault()
         skype_send(credentials["oota"]["skypeLiveId"], "楽天欠品作業中にエラーが起きました。")
         with open(os.path.join(backupfolder, "error.log"), 'w', encoding='utf-8') as f:
             traceback.print_exc(file=f)
